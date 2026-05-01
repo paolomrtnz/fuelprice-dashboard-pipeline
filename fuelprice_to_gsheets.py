@@ -42,53 +42,52 @@ def scrape_fuelprice():
 
     scrape_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    row_pattern = re.compile(
-        r"^(?:[A-Z]{2}\s+)?(.+?)\s+₱(\d+(?:\.\d+)?)\s+([+-]₱\d+(?:\.\d+)?)\s+(Settled|Pending|Updated)\s+([A-Za-z]+\s+\d+)$"
+    rows = re.findall(
+        r"\b[A-Z]{2}\s+([A-Za-z ]+?)\s+₱(\d+\.\d+)\s+([+-]₱\d+\.\d+)\s+(Settled|Pending|Updated)\s+([A-Za-z]{3}\s+\d{1,2})",
+        text,
     )
+
+    if not rows:
+        raise ValueError("No fuel price records were scraped.")
 
     records = []
 
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    for i, row in enumerate(rows):
+        brand, price, change, status, last_verified = row
 
-    for line in lines:
-        match = row_pattern.match(line)
+        fuel_type = "Unleaded 91" if i < 13 else "Premium 95"
 
-        if match:
-            brand = match.group(1).strip()
-            price = match.group(2).strip()
-            change = match.group(3).replace("₱", "").strip()
-            status = match.group(4).strip()
-            last_verified = match.group(5).strip()
-
-            records.append({
-                "scrape_timestamp": scrape_timestamp,
-                "source_url": SOURCE_URL,
-                "fuel_type": "",
-                "brand": brand,
-                "avg_price_per_liter": price,
-                "vs_previous_week": change,
-                "status": status,
-                "last_verified": last_verified,
-            })
-
-    if not records:
-        raise ValueError("No fuel price records were scraped.")
+        records.append({
+            "scrape_timestamp": scrape_timestamp,
+            "source_url": SOURCE_URL,
+            "fuel_type": fuel_type,
+            "brand": brand.strip(),
+            "avg_price_per_liter": price,
+            "vs_previous_week": change.replace("₱", ""),
+            "status": status,
+            "last_verified": last_verified,
+        })
 
     df = pd.DataFrame(records)
 
-    # First 13 rows are Unleaded 91, next rows are Premium 95
-    df.loc[:12, "fuel_type"] = "Unleaded 91"
-    df.loc[13:, "fuel_type"] = "Premium 95"
-
     brand_order = [
-        "Shell", "Petron", "Caltex", "Seaoil", "Phoenix", "Cleanfuel",
-        "Unioil", "Flying V", "Jetti", "Total Energies",
-        "Petro Gazz", "Eastern Petroleum", "PTT"
+        "Shell",
+        "Petron",
+        "Caltex",
+        "Seaoil",
+        "Phoenix",
+        "Cleanfuel",
+        "Unioil",
+        "Flying V",
+        "Jetti",
+        "Total Energies",
+        "Petro Gazz",
+        "Eastern Petroleum",
+        "PTT",
     ]
 
     df["brand"] = pd.Categorical(df["brand"], categories=brand_order, ordered=True)
     df = df.sort_values(["fuel_type", "brand"])
-
     df = df[HEADERS]
 
     return df
@@ -114,7 +113,7 @@ def append_to_google_sheet(df):
 
     df = df.fillna("").astype(str)
 
-    # RAW keeps + sign in vs_previous_week
+    # RAW keeps + sign in Google Sheets
     worksheet.append_rows(df.values.tolist(), value_input_option="RAW")
 
 
