@@ -37,7 +37,7 @@ def clean_price(value):
 def clean_change(value):
     if not value:
         return None
-    text = str(value).replace("₱", "").replace("/L", "").replace(",", "").strip()
+    text = str(value).replace("₱", "").replace(",", "").strip()
     match = re.search(r"[+-]?\d+(\.\d+)?", text)
     return float(match.group()) if match else None
 
@@ -60,7 +60,11 @@ def scrape_fuelprice():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36"
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/115.0 Safari/537.36"
+            )
         )
         page.goto(SOURCE_URL, wait_until="networkidle", timeout=60000)
         html = page.content()
@@ -71,41 +75,49 @@ def scrape_fuelprice():
     last_verified = get_last_verified(soup)
     scrape_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    page_text = soup.get_text("\n", strip=True)
+    lines = [line.strip() for line in page_text.split("\n") if line.strip()]
+
     records = []
 
-    tables = soup.find_all("table")
+    # Current gasoline page has 13 Unleaded rows, then 12 Premium rows.
+    # Brand rows look like:
+    # SH Shell ₱104.02 +₱0.53 Settled Apr 28
+    brand_row_pattern = re.compile(
+        r"^[A-Z]{2}\s+(.+?)\s+₱(\d+(?:\.\d+)?)\s+([+-]₱\d+(?:\.\d+)?)\s+(Settled|Pending|Updated)\s+(.+)$"
+    )
 
-    for table in tables:
-        rows = table.find_all("tr")
+    fuel_type = "Unleaded 91"
+    brand_count = 0
 
-        current_fuel_type = None
+    for line in lines:
+        match = brand_row_pattern.search(line)
 
-        for row in rows:
-            cols = [col.get_text(strip=True) for col in row.find_all("td")]
+        if not match:
+            continue
 
-            if len(cols) == 1:
-                current_fuel_type = cols[0]
-                continue
+        brand = match.group(1).strip()
+        price = clean_price(match.group(2))
+        change = clean_change(match.group(3))
+        status = match.group(4).strip()
+        row_verified = match.group(5).strip()
 
-            if len(cols) >= 3 and current_fuel_type:
-                brand = cols[0]
-                price_text = cols[1]
-                change_text = cols[2] if len(cols) > 2 else ""
+        # First 13 brand rows are Unleaded 91, next rows are Premium 95
+        if brand_count >= 13:
+            fuel_type = "Premium 95"
 
-                price = clean_price(price_text)
-                change = clean_change(change_text)
+        records.append({
+            "scrape_timestamp": scrape_timestamp,
+            "source_url": SOURCE_URL,
+            "fuel_type": fuel_type,
+            "brand": brand,
+            "avg_price_per_liter": price,
+            "vs_previous_week": change,
+            "status": status,
+            "last_verified": row_verified or last_verified,
+        })
 
-                if price is not None:
-                    records.append({
-                        "scrape_timestamp": scrape_timestamp,
-                        "source_url": SOURCE_URL,
-                        "fuel_type": current_fuel_type,
-                        "brand": brand,
-                        "avg_price_per_liter": price,
-                        "vs_previous_week": change,
-                        "status": "scraped",
-                        "last_verified": last_verified,
-                    })
+        brand_count += 1
 
     df = pd.DataFrame(records)
 
@@ -143,7 +155,7 @@ def append_to_google_sheet(df):
     if not existing_values:
         worksheet.append_row(HEADERS)
 
-    df = df.fillna("")
+    df = df.fillna("").astype(str)
     worksheet.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
 
 
