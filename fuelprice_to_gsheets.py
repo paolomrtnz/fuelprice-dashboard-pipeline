@@ -27,31 +27,19 @@ HEADERS = [
 
 
 def clean_price(value):
-    if value is None:
+    if not value:
         return None
-
-    text = str(value)
-    text = text.replace("₱", "").replace("/L", "").replace(",", "").strip()
-
+    text = str(value).replace("₱", "").replace("/L", "").replace(",", "").strip()
     match = re.search(r"\d+(\.\d+)?", text)
-    if match:
-        return float(match.group())
-
-    return None
+    return float(match.group()) if match else None
 
 
 def clean_change(value):
-    if value is None:
+    if not value:
         return None
-
-    text = str(value)
-    text = text.replace("₱", "").replace("/L", "").replace(",", "").strip()
-
+    text = str(value).replace("₱", "").replace("/L", "").replace(",", "").strip()
     match = re.search(r"[+-]?\d+(\.\d+)?", text)
-    if match:
-        return float(match.group())
-
-    return None
+    return float(match.group()) if match else None
 
 
 def get_last_verified(soup):
@@ -83,55 +71,41 @@ def scrape_fuelprice():
     last_verified = get_last_verified(soup)
     scrape_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    page_text = soup.get_text("\n", strip=True)
-
-    fuel_types = ["Unleaded 91", "Premium 95"]
-    brands = [
-        "Cleanfuel",
-        "Flying V",
-        "Jetti",
-        "Phoenix",
-        "PTT",
-        "RePhil",
-        "Seaoil",
-        "Shell",
-        "Petron",
-        "Caltex",
-        "Unioil",
-        "TotalEnergies",
-        "SeaOil",
-    ]
-
     records = []
 
-    lines = [line.strip() for line in page_text.split("\n") if line.strip()]
+    tables = soup.find_all("table")
 
-    current_fuel_type = None
+    for table in tables:
+        rows = table.find_all("tr")
 
-    for i, line in enumerate(lines):
-        if line in fuel_types:
-            current_fuel_type = line
+        current_fuel_type = None
 
-        if line in brands and current_fuel_type:
-            nearby_text = " ".join(lines[i:i + 8])
+        for row in rows:
+            cols = [col.get_text(strip=True) for col in row.find_all("td")]
 
-            price_match = re.search(r"₱?\s*(\d+(\.\d+)?)\s*/?L", nearby_text)
-            change_match = re.search(r"([+-]₱?\s*\d+(\.\d+)?)\s*vs last week", nearby_text)
+            if len(cols) == 1:
+                current_fuel_type = cols[0]
+                continue
 
-            price = clean_price(price_match.group(1)) if price_match else None
-            change = clean_change(change_match.group(1)) if change_match else None
+            if len(cols) >= 3 and current_fuel_type:
+                brand = cols[0]
+                price_text = cols[1]
+                change_text = cols[2] if len(cols) > 2 else ""
 
-            if price is not None:
-                records.append({
-                    "scrape_timestamp": scrape_timestamp,
-                    "source_url": SOURCE_URL,
-                    "fuel_type": current_fuel_type,
-                    "brand": line,
-                    "avg_price_per_liter": price,
-                    "vs_previous_week": change,
-                    "status": "scraped",
-                    "last_verified": last_verified,
-                })
+                price = clean_price(price_text)
+                change = clean_change(change_text)
+
+                if price is not None:
+                    records.append({
+                        "scrape_timestamp": scrape_timestamp,
+                        "source_url": SOURCE_URL,
+                        "fuel_type": current_fuel_type,
+                        "brand": brand,
+                        "avg_price_per_liter": price,
+                        "vs_previous_week": change,
+                        "status": "scraped",
+                        "last_verified": last_verified,
+                    })
 
     df = pd.DataFrame(records)
 
@@ -171,6 +145,7 @@ def append_to_google_sheet(df):
 
     df = df.fillna("")
     worksheet.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
+
 
 def main():
     df = scrape_fuelprice()
