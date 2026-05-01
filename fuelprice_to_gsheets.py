@@ -3,7 +3,7 @@ import json
 import re
 from datetime import datetime
 
-import requests
+from playwright.sync_api import sync_playwright
 import pandas as pd
 from bs4 import BeautifulSoup
 
@@ -69,20 +69,17 @@ def get_last_verified(soup):
 
 
 def scrape_fuelprice():
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.google.com/"
-    }
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36"
+        )
+        page.goto(SOURCE_URL, wait_until="networkidle", timeout=60000)
+        html = page.content()
+        browser.close()
 
-    response = requests.get(
-        SOURCE_URL,
-        headers=headers,
-        timeout=30,
-    )
-    response.raise_for_status()
+    soup = BeautifulSoup(html, "html.parser")
 
-    soup = BeautifulSoup(response.text, "html.parser")
     last_verified = get_last_verified(soup)
     scrape_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
