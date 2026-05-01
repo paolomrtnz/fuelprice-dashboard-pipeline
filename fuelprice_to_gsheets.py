@@ -169,8 +169,8 @@ def append_to_google_sheet(df):
     if not existing_values:
         worksheet.append_row(HEADERS)
 
-    worksheet.append_rows(df.astype(str).values.tolist(), value_input_option="USER_ENTERED")
-
+    df = df.fillna("")
+    worksheet.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
 
 def main():
     df = scrape_fuelprice()
