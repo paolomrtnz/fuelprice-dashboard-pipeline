@@ -29,100 +29,77 @@ HEADERS = [
 def clean_price(value):
     if not value:
         return None
-    text = str(value).replace("₱", "").replace("/L", "").replace(",", "").strip()
-    match = re.search(r"\d+(\.\d+)?", text)
+    match = re.search(r"\d+(\.\d+)?", value)
     return float(match.group()) if match else None
 
 
 def clean_change(value):
     if not value:
         return None
-    text = str(value).replace("₱", "").replace(",", "").strip()
-    match = re.search(r"[+-]?\d+(\.\d+)?", text)
+    match = re.search(r"[+-]?\d+(\.\d+)?", value)
     return float(match.group()) if match else None
-
-
-def get_last_verified(soup):
-    text = soup.get_text(" ", strip=True)
-
-    match = re.search(r"Last verified:\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})", text)
-    if match:
-        return match.group(1)
-
-    match = re.search(r"Last updated:\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})", text)
-    if match:
-        return match.group(1)
-
-    return ""
 
 
 def scrape_fuelprice():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/115.0 Safari/537.36"
-            )
-        )
+        page = browser.new_page()
         page.goto(SOURCE_URL, wait_until="networkidle", timeout=60000)
         html = page.content()
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text("\n", strip=True)
 
-    last_verified = get_last_verified(soup)
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+
     scrape_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    page_text = soup.get_text("\n", strip=True)
-    lines = [line.strip() for line in page_text.split("\n") if line.strip()]
 
     records = []
 
-    # Current gasoline page has 13 Unleaded rows, then 12 Premium rows.
-    # Brand rows look like:
-    # SH Shell ₱104.02 +₱0.53 Settled Apr 28
-    brand_row_pattern = re.compile(
-        r"^[A-Z]{2}\s+(.+?)\s+₱(\d+(?:\.\d+)?)\s+([+-]₱\d+(?:\.\d+)?)\s+(Settled|Pending|Updated)\s+(.+)$"
-    )
-
     fuel_type = "Unleaded 91"
-    brand_count = 0
+    counter = 0
 
     for line in lines:
-        match = brand_row_pattern.search(line)
+        # look for lines containing price
+        if "₱" in line and any(x in line for x in ["Settled", "Pending", "Updated"]):
 
-        if not match:
-            continue
+            parts = line.split()
 
-        brand = match.group(1).strip()
-        price = clean_price(match.group(2))
-        change = clean_change(match.group(3))
-        status = match.group(4).strip()
-        row_verified = match.group(5).strip()
+            # try to extract brand (skip 2-letter code like SH)
+            if len(parts) >= 4:
+                brand = parts[1] if len(parts[0]) == 2 else parts[0]
 
-        # First 13 brand rows are Unleaded 91, next rows are Premium 95
-        if brand_count >= 13:
-            fuel_type = "Premium 95"
+                price = clean_price(line)
 
-        records.append({
-            "scrape_timestamp": scrape_timestamp,
-            "source_url": SOURCE_URL,
-            "fuel_type": fuel_type,
-            "brand": brand,
-            "avg_price_per_liter": price,
-            "vs_previous_week": change,
-            "status": status,
-            "last_verified": row_verified or last_verified,
-        })
+                change_match = re.search(r"[+-]₱\d+(\.\d+)?", line)
+                change = clean_change(change_match.group()) if change_match else None
 
-        brand_count += 1
+                status = "Settled" if "Settled" in line else "Pending"
+
+                last_verified = " ".join(parts[-2:])
+
+                # switch fuel type after enough rows
+                if counter >= 12:
+                    fuel_type = "Premium 95"
+
+                records.append({
+                    "scrape_timestamp": scrape_timestamp,
+                    "source_url": SOURCE_URL,
+                    "fuel_type": fuel_type,
+                    "brand": brand,
+                    "avg_price_per_liter": price,
+                    "vs_previous_week": change,
+                    "status": status,
+                    "last_verified": last_verified,
+                })
+
+                counter += 1
 
     df = pd.DataFrame(records)
 
     if df.empty:
-        raise ValueError("No fuel price records were scraped. Website structure may have changed.")
+        raise ValueError("Still no data scraped. Site structure changed heavily.")
 
     df = df.drop_duplicates(subset=["scrape_timestamp", "fuel_type", "brand"])
     df = df[HEADERS]
@@ -161,13 +138,8 @@ def append_to_google_sheet(df):
 
 def main():
     df = scrape_fuelprice()
-
-    print("Scraped records:")
     print(df)
-
     append_to_google_sheet(df)
-
-    print(f"Successfully appended {len(df)} rows to Google Sheets.")
 
 
 if __name__ == "__main__":
