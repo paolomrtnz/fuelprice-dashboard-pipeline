@@ -44,7 +44,11 @@ def scrape_fuelprice():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        page.goto(SOURCE_URL, wait_until="networkidle", timeout=60000)
+
+        # FIXED loading (no more timeout)
+        page.goto(SOURCE_URL, wait_until="domcontentloaded", timeout=90000)
+        page.wait_for_timeout(5000)
+
         html = page.content()
         browser.close()
 
@@ -61,14 +65,17 @@ def scrape_fuelprice():
     counter = 0
 
     for line in lines:
-        # look for lines containing price
+        # detect lines with price data
         if "₱" in line and any(x in line for x in ["Settled", "Pending", "Updated"]):
 
             parts = line.split()
 
-            # try to extract brand (skip 2-letter code like SH)
-            if len(parts) >= 4:
-                brand = parts[1] if len(parts[0]) == 2 else parts[0]
+            # extract brand
+            if len(parts) >= 3:
+                if len(parts[0]) == 2:
+                    brand = parts[1]
+                else:
+                    brand = parts[0]
 
                 price = clean_price(line)
 
@@ -79,7 +86,7 @@ def scrape_fuelprice():
 
                 last_verified = " ".join(parts[-2:])
 
-                # switch fuel type after enough rows
+                # switch to Premium after enough rows
                 if counter >= 12:
                     fuel_type = "Premium 95"
 
@@ -99,7 +106,7 @@ def scrape_fuelprice():
     df = pd.DataFrame(records)
 
     if df.empty:
-        raise ValueError("Still no data scraped. Site structure changed heavily.")
+        raise ValueError("No data scraped. Page structure changed.")
 
     df = df.drop_duplicates(subset=["scrape_timestamp", "fuel_type", "brand"])
     df = df[HEADERS]
@@ -138,8 +145,13 @@ def append_to_google_sheet(df):
 
 def main():
     df = scrape_fuelprice()
+
+    print("Scraped records:")
     print(df)
+
     append_to_google_sheet(df)
+
+    print(f"Successfully appended {len(df)} rows to Google Sheets.")
 
 
 if __name__ == "__main__":
