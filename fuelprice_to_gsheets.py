@@ -37,9 +37,16 @@ def clean_price(value):
 def clean_change(value):
     if not value:
         return None
+
     text = str(value).replace("₱", "").replace("/L", "").replace(",", "").strip()
-    match = re.search(r"[+-]?\d+(\.\d+)?", text)
-    return float(match.group()) if match else None
+
+    # captures +0.53 or -0.53
+    match = re.search(r"([+-]\s*\d+(\.\d+)?)", text)
+
+    if match:
+        return match.group(1).replace(" ", "")
+
+    return None
 
 
 def get_last_verified(soup):
@@ -59,11 +66,17 @@ def get_last_verified(soup):
 def scrape_fuelprice():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+
         page = browser.new_page(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0 Safari/537.36"
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 Chrome/115.0 Safari/537.36"
+            )
         )
+
         page.goto(SOURCE_URL, wait_until="domcontentloaded", timeout=90000)
         page.wait_for_timeout(8000)
+
         html = page.content()
         browser.close()
 
@@ -74,7 +87,6 @@ def scrape_fuelprice():
 
     page_text = soup.get_text("\n", strip=True)
 
-    fuel_types = ["Unleaded 91", "Premium 95"]
     brands = [
         "Cleanfuel",
         "Flying V",
@@ -94,13 +106,8 @@ def scrape_fuelprice():
     records = []
     lines = [line.strip() for line in page_text.split("\n") if line.strip()]
 
-    current_fuel_type = None
-
     for i, line in enumerate(lines):
-        if line in fuel_types:
-            current_fuel_type = line
-
-        if line in brands and current_fuel_type:
+        if line in brands:
             nearby_text = " ".join(lines[i:i + 25])
 
             price_match = re.search(r"₱?\s*(\d+(\.\d+)?)\s*/?L?", nearby_text)
@@ -113,7 +120,7 @@ def scrape_fuelprice():
                 records.append({
                     "scrape_timestamp": scrape_timestamp,
                     "source_url": SOURCE_URL,
-                    "fuel_type": current_fuel_type,
+                    "fuel_type": "Unleaded 91",
                     "brand": line,
                     "avg_price_per_liter": price,
                     "vs_previous_week": change,
@@ -125,6 +132,25 @@ def scrape_fuelprice():
 
     if df.empty:
         raise ValueError("No fuel price records were scraped. Website structure may have changed.")
+
+    brand_order = [
+        "Shell",
+        "Petron",
+        "Caltex",
+        "Seaoil",
+        "Phoenix",
+        "Unioil",
+        "Flying V",
+        "Jetti",
+        "PTT",
+        "Cleanfuel",
+        "RePhil",
+        "TotalEnergies",
+        "SeaOil",
+    ]
+
+    df["brand"] = pd.Categorical(df["brand"], categories=brand_order, ordered=True)
+    df = df.sort_values("brand")
 
     df = df.drop_duplicates(subset=["scrape_timestamp", "fuel_type", "brand"])
     df = df[HEADERS]
