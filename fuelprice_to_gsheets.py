@@ -26,133 +26,69 @@ HEADERS = [
 ]
 
 
-def clean_price(value):
-    if not value:
-        return None
-    text = str(value).replace("₱", "").replace("/L", "").replace(",", "").strip()
-    match = re.search(r"\d+(\.\d+)?", text)
-    return float(match.group()) if match else None
-
-
-def clean_change(value):
-    if not value:
-        return None
-
-    text = str(value).replace("₱", "").replace("/L", "").replace(",", "").strip()
-
-    # captures +0.53 or -0.53
-    match = re.search(r"([+-]\s*\d+(\.\d+)?)", text)
-
-    if match:
-        return match.group(1).replace(" ", "")
-
-    return None
-
-
-def get_last_verified(soup):
-    text = soup.get_text(" ", strip=True)
-
-    match = re.search(r"Last verified:\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})", text)
-    if match:
-        return match.group(1)
-
-    match = re.search(r"Last updated:\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})", text)
-    if match:
-        return match.group(1)
-
-    return ""
-
-
 def scrape_fuelprice():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-
         page = browser.new_page(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/115.0 Safari/537.36"
-            )
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0 Safari/537.36"
         )
-
         page.goto(SOURCE_URL, wait_until="domcontentloaded", timeout=90000)
         page.wait_for_timeout(8000)
-
         html = page.content()
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text("\n", strip=True)
 
-    last_verified = get_last_verified(soup)
     scrape_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    page_text = soup.get_text("\n", strip=True)
-
-    brands = [
-        "Cleanfuel",
-        "Flying V",
-        "Jetti",
-        "Phoenix",
-        "PTT",
-        "RePhil",
-        "Seaoil",
-        "Shell",
-        "Petron",
-        "Caltex",
-        "Unioil",
-        "TotalEnergies",
-        "SeaOil",
-    ]
+    row_pattern = re.compile(
+        r"^(?:[A-Z]{2}\s+)?(.+?)\s+₱(\d+(?:\.\d+)?)\s+([+-]₱\d+(?:\.\d+)?)\s+(Settled|Pending|Updated)\s+([A-Za-z]+\s+\d+)$"
+    )
 
     records = []
-    lines = [line.strip() for line in page_text.split("\n") if line.strip()]
 
-    for i, line in enumerate(lines):
-        if line in brands:
-            nearby_text = " ".join(lines[i:i + 25])
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
 
-            price_match = re.search(r"₱?\s*(\d+(\.\d+)?)\s*/?L?", nearby_text)
-            change_match = re.search(r"([+-]\s*₱?\s*\d+(\.\d+)?)", nearby_text)
+    for line in lines:
+        match = row_pattern.match(line)
 
-            price = clean_price(price_match.group(1)) if price_match else None
-            change = clean_change(change_match.group(1)) if change_match else None
+        if match:
+            brand = match.group(1).strip()
+            price = match.group(2).strip()
+            change = match.group(3).replace("₱", "").strip()
+            status = match.group(4).strip()
+            last_verified = match.group(5).strip()
 
-            if price is not None:
-                records.append({
-                    "scrape_timestamp": scrape_timestamp,
-                    "source_url": SOURCE_URL,
-                    "fuel_type": "Unleaded 91",
-                    "brand": line,
-                    "avg_price_per_liter": price,
-                    "vs_previous_week": change,
-                    "status": "scraped",
-                    "last_verified": last_verified,
-                })
+            records.append({
+                "scrape_timestamp": scrape_timestamp,
+                "source_url": SOURCE_URL,
+                "fuel_type": "",
+                "brand": brand,
+                "avg_price_per_liter": price,
+                "vs_previous_week": change,
+                "status": status,
+                "last_verified": last_verified,
+            })
+
+    if not records:
+        raise ValueError("No fuel price records were scraped.")
 
     df = pd.DataFrame(records)
 
-    if df.empty:
-        raise ValueError("No fuel price records were scraped. Website structure may have changed.")
+    # First 13 rows are Unleaded 91, next rows are Premium 95
+    df.loc[:12, "fuel_type"] = "Unleaded 91"
+    df.loc[13:, "fuel_type"] = "Premium 95"
 
     brand_order = [
-        "Shell",
-        "Petron",
-        "Caltex",
-        "Seaoil",
-        "Phoenix",
-        "Unioil",
-        "Flying V",
-        "Jetti",
-        "PTT",
-        "Cleanfuel",
-        "RePhil",
-        "TotalEnergies",
-        "SeaOil",
+        "Shell", "Petron", "Caltex", "Seaoil", "Phoenix", "Cleanfuel",
+        "Unioil", "Flying V", "Jetti", "Total Energies",
+        "Petro Gazz", "Eastern Petroleum", "PTT"
     ]
 
     df["brand"] = pd.Categorical(df["brand"], categories=brand_order, ordered=True)
-    df = df.sort_values("brand")
+    df = df.sort_values(["fuel_type", "brand"])
 
-    df = df.drop_duplicates(subset=["scrape_timestamp", "fuel_type", "brand"])
     df = df[HEADERS]
 
     return df
@@ -162,29 +98,24 @@ def append_to_google_sheet(df):
     service_account_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
     sheet_id = os.environ["GOOGLE_SHEET_ID"]
 
-    service_account_info = json.loads(service_account_json)
-
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-
     credentials = Credentials.from_service_account_info(
-        service_account_info,
-        scopes=scopes,
+        json.loads(service_account_json),
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
     )
 
     client = gspread.authorize(credentials)
-    spreadsheet = client.open_by_key(sheet_id)
-    worksheet = spreadsheet.worksheet(SHEET_NAME)
+    worksheet = client.open_by_key(sheet_id).worksheet(SHEET_NAME)
 
-    existing_values = worksheet.get_all_values()
-
-    if not existing_values:
+    if not worksheet.get_all_values():
         worksheet.append_row(HEADERS)
 
     df = df.fillna("").astype(str)
-    worksheet.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
+
+    # RAW keeps + sign in vs_previous_week
+    worksheet.append_rows(df.values.tolist(), value_input_option="RAW")
 
 
 def main():
