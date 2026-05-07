@@ -118,8 +118,8 @@ def scrape_fuelprice():
         # Scrape default visible tab: Unleaded 91
         all_records.extend(extract_visible_table(page, "Unleaded 91"))
 
-        # Click Premium 95 tab, then scrape again
-        page.get_by_text("Premium 95", exact=True).click()
+        # Click exact Premium 95 tab button, then scrape Premium 95
+        page.locator('button[data-fuel="premium-95"]').click()
         page.wait_for_timeout(3000)
 
         all_records.extend(extract_visible_table(page, "Premium 95"))
