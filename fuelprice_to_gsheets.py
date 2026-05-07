@@ -11,7 +11,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 
-SOURCE_URL = "https://www.fuelprice.ph/gasoline-price-philippines"
+SOURCE_URL = "https://www.fuelprice.ph"
 SHEET_NAME = "Sheet1"
 
 HEADERS = [
