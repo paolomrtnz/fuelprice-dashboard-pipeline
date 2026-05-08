@@ -24,5 +24,4 @@ The project aims to monitor fuel price trends and analyze pricing differences am
 - Loreto, Lucas Ian L.
 - Young, Eira Mae Benita P.
 - Martinez, Paolo Enrico A.
-
-## 2DSA-1
+- 2DSA-1
