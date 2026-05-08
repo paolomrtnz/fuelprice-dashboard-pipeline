@@ -18,11 +18,11 @@ This project is an automated fuel price monitoring and dashboard system that col
 ## Purpose
 The project aims to monitor fuel price trends and analyze pricing differences among fuel brands and fuel types through an automated data pipeline and dashboard visualization.
 
-## Authors
+## Authors:
 - Garin, Hannah Fatima T.
 - Reyes, Shaun Mackenzie B.
 - Loreto, Lucas Ian L.
 - Young, Eira Mae Benita P.
 - Martinez, Paolo Enrico A.
 
-2DSA-1
+## 2DSA-1
