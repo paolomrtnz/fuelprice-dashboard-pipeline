@@ -1,9 +1,11 @@
-name: FuelPrice Pipeline
+name: Fuel Price Scraper
 
 on:
   workflow_dispatch:
+
   schedule:
-    - cron: "0 1 * * 2"
+    # every 2 hours
+    - cron: "0 */2 * * *"
 
 jobs:
   scrape-and-update:
@@ -20,10 +22,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install pandas beautifulsoup4 playwright gspread google-auth
           playwright install chromium
 
-      - name: Run FuelPrice scraper
+      - name: Run fuel price scraper
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
