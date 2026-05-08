@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
 
   schedule:
-    # every 1 minute
-    - cron: "* * * * *"
+    # every 10 minutes for testing automation
+    - cron: "*/10 * * * *"
 
 jobs:
   scrape-and-update:
