@@ -26,6 +26,14 @@ HEADERS = [
 ]
 
 
+FUEL_TABS = [
+    ("unleaded-91", "Unleaded 91"),
+    ("premium-95", "Premium 95"),
+    ("diesel", "Diesel"),
+    ("diesel-plus", "Diesel Plus"),
+]
+
+
 def extract_visible_table(page, fuel_type):
     html = page.content()
     soup = BeautifulSoup(html, "html.parser")
@@ -115,14 +123,14 @@ def scrape_fuelprice():
         page.goto(SOURCE_URL, wait_until="domcontentloaded", timeout=90000)
         page.wait_for_timeout(10000)
 
-        # Scrape default visible tab: Unleaded 91
-        all_records.extend(extract_visible_table(page, "Unleaded 91"))
+        for tab_id, fuel_type in FUEL_TABS:
+            print(f"Scraping {fuel_type}...")
 
-        # Click exact Premium 95 tab button, then scrape Premium 95
-        page.locator('button[data-fuel="premium-95"]').click()
-        page.wait_for_timeout(3000)
+            page.locator(f'button[data-fuel="{tab_id}"]').click()
+            page.wait_for_timeout(3000)
 
-        all_records.extend(extract_visible_table(page, "Premium 95"))
+            rows = extract_visible_table(page, fuel_type)
+            all_records.extend(rows)
 
         browser.close()
 
@@ -161,7 +169,6 @@ def append_to_google_sheet(df):
 
     df = df.fillna("").astype(str)
 
-    # RAW keeps + and - signs
     worksheet.append_rows(df.values.tolist(), value_input_option="RAW")
 
 
