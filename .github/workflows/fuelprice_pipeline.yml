@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
 
   schedule:
-    # every 2 hours
-    - cron: "0 */2 * * *"
+    # every Tuesday at 8:00 AM UTC
+    - cron: "0 8 * * 2"
 
 jobs:
   scrape-and-update:
